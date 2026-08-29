@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+import threading
 from fnmatch import fnmatch
 
 import sentry_sdk
-from fastapi import BackgroundTasks, FastAPI, Header, Request, Response
+from fastapi import FastAPI, Header, Request, Response
 
 from . import gh, review
 from .settings import settings
@@ -33,10 +34,17 @@ def health() -> dict:
     return {"ok": True, "service": "genai-code-reviewer-flexe"}
 
 
+def _spawn(installation_id: int, repo_full: str, pr_number: int) -> None:
+    # A dedicated OS thread, not anyio's threadpool: the google-genai sync client
+    # misbehaves ("httpx client closed") when driven from that pool.
+    threading.Thread(
+        target=_run, args=(installation_id, repo_full, pr_number), daemon=True
+    ).start()
+
+
 @app.post("/webhook")
 async def webhook(
     request: Request,
-    background: BackgroundTasks,
     x_github_event: str = Header(default=""),
     x_hub_signature_256: str | None = Header(default=None),
 ) -> Response:
@@ -50,8 +58,7 @@ async def webhook(
     if x_github_event == "pull_request" and action in REVIEW_ACTIONS:
         pr = payload["pull_request"]
         if not pr.get("draft"):
-            background.add_task(
-                _run,
+            _spawn(
                 payload["installation"]["id"],
                 payload["repository"]["full_name"],
                 pr["number"],
@@ -60,8 +67,7 @@ async def webhook(
         issue = payload.get("issue", {})
         comment = payload.get("comment", {}).get("body") or ""
         if issue.get("pull_request") and settings.review_command in comment:
-            background.add_task(
-                _run,
+            _spawn(
                 payload["installation"]["id"],
                 payload["repository"]["full_name"],
                 issue["number"],

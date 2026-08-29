@@ -45,19 +45,18 @@ class ResolvedOutput(BaseModel):
     items: list[ResolvedStatus] = Field(default_factory=list)
 
 
-_CLIENT: genai.Client | None = None
+# Built once at import, on the main thread. A fresh genai.Client per call closes
+# the shared httpx transport on GC ("Cannot send a request, client closed"), and
+# building it inside anyio's threadpool leaves the transport orphaned. Worker
+# threads reuse this instance (httpx sync client is safe across threads).
+_CLIENT = genai.Client(
+    vertexai=True,
+    project=settings.gcp_project,
+    location=settings.vertex_location,
+)
 
 
 def _client() -> genai.Client:
-    # One client for the process. Creating a fresh genai.Client per call closes
-    # the shared httpx transport on GC -> "Cannot send a request, client closed".
-    global _CLIENT
-    if _CLIENT is None:
-        _CLIENT = genai.Client(
-            vertexai=True,
-            project=settings.gcp_project,
-            location=settings.vertex_location,
-        )
     return _CLIENT
 
 
