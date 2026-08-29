@@ -15,6 +15,9 @@ app = FastAPI(title="genai-code-reviewer-flexe")
 
 REVIEW_ACTIONS = {"opened", "synchronize", "reopened", "ready_for_review"}
 
+_SEV_ES = {"critical": "CRÍTICA", "high": "ALTA", "medium": "MEDIA", "low": "BAJA"}
+_SEV_ORDER = ["critical", "high", "medium", "low"]
+
 
 @app.get("/")
 def health() -> dict:
@@ -95,7 +98,7 @@ def _run(installation_id: int, repo_full: str, pr_number: int) -> None:
         inline: list[dict] = []
         spilled: list[str] = []
         for fnd in result.findings[: settings.max_findings]:
-            block = f"**[{fnd.severity.value.upper()}] {fnd.title}**\n\n{fnd.detail}"
+            block = f"**[{_SEV_ES[fnd.severity.value]}] {fnd.title}**\n\n{fnd.detail}"
             if fnd.suggestion:
                 block += f"\n\n```suggestion\n{fnd.suggestion}\n```"
             if fnd.line in valid.get(fnd.path, set()):
@@ -124,17 +127,20 @@ def _summary_md(result: review.ReviewOutput, resolved, spilled: list[str]) -> st
         by_sev[f.severity.value] = by_sev.get(f.severity.value, 0) + 1
 
     out = ["## 🤖 genai-code-reviewer-flexe — Gemini 2.5 Flash", ""]
-    out.append(
-        " · ".join(f"**{k}**: {v}" for k, v in sorted(by_sev.items()))
-        if by_sev
-        else "No blocking issues found."
-    )
+    if by_sev:
+        out.append(
+            " · ".join(
+                f"**{_SEV_ES[s]}**: {by_sev[s]}" for s in _SEV_ORDER if by_sev.get(s)
+            )
+        )
+    else:
+        out.append("Sin hallazgos que bloqueen el merge.")
     if result.overall:
         out += ["", result.overall]
 
     if resolved:
         icon = {"resolved": "✅", "open": "❌", "unknown": "❔"}
-        out += ["", "### Re-check of previous findings"]
+        out += ["", "### Re-chequeo de hallazgos previos"]
         out += [
             f"- {icon.get(r.status, '❔')} `{r.path}` — {r.title}"
             + (f" · {r.note}" if r.note else "")
@@ -142,7 +148,11 @@ def _summary_md(result: review.ReviewOutput, resolved, spilled: list[str]) -> st
         ]
 
     if spilled:
-        out += ["", "### Findings outside the changed lines", *spilled]
+        out += ["", "### Hallazgos fuera de las líneas modificadas", *spilled]
 
-    out += ["", "---", f"_Re-run this review: comment `{settings.review_command}` on the PR._"]
+    out += [
+        "",
+        "---",
+        f"_Volver a correr la revisión: comentá `{settings.review_command}` en el PR._",
+    ]
     return "\n".join(out)
