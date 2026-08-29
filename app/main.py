@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from fnmatch import fnmatch
 
+import sentry_sdk
 from fastapi import BackgroundTasks, FastAPI, Header, Request, Response
 
 from . import gh, review
@@ -10,6 +11,14 @@ from .settings import settings
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("genai-code-reviewer-flexe")
+
+if settings.sentry_dsn:
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.environment,
+        traces_sample_rate=settings.sentry_traces_sample_rate,
+        send_default_pii=False,
+    )
 
 app = FastAPI(title="genai-code-reviewer-flexe")
 
@@ -119,6 +128,10 @@ def _run(installation_id: int, repo_full: str, pr_number: int) -> None:
         )
     except Exception:  # noqa: BLE001 - background task, log and move on
         log.exception("review failed for %s#%s", repo_full, pr_number)
+        with sentry_sdk.new_scope() as scope:
+            scope.set_tag("repo", repo_full)
+            scope.set_context("pr", {"number": pr_number})
+            sentry_sdk.capture_exception()
 
 
 def _summary_md(result: review.ReviewOutput, resolved, spilled: list[str]) -> str:

@@ -54,7 +54,7 @@ jobs:
             --max-instances=5
             --memory=512Mi
             --service-account=${{ env.RUNTIME_SA }}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
-            --set-env-vars=GITHUB_APP_ID=${{ secrets.GH_APP_ID }},GCP_PROJECT=${{ env.PROJECT_ID }},VERTEX_LOCATION=${{ env.VERTEX_LOCATION }},MODEL=${{ env.MODEL }}
+            --set-env-vars=GITHUB_APP_ID=${{ secrets.GH_APP_ID }},GCP_PROJECT=${{ env.PROJECT_ID }},VERTEX_LOCATION=${{ env.VERTEX_LOCATION }},MODEL=${{ env.MODEL }},ENVIRONMENT=production,SENTRY_DSN=${{ secrets.SENTRY_DSN }}
             --set-secrets=GITHUB_APP_PRIVATE_KEY=genai-reviewer-gh-private-key:latest,GITHUB_WEBHOOK_SECRET=genai-reviewer-webhook-secret:latest
 
       - name: Show deployed URL

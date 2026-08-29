@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     # Org-wide path excludes (comma-separated globs)
     exclude_globs: str = "**/*.lock,**/*.min.js,**/*.snap,dist/**,build/**,vendor/**,node_modules/**"
 
+    # Monitoring (optional — no-op when sentry_dsn is empty)
+    sentry_dsn: str = ""
+    sentry_traces_sample_rate: float = 0.0
+    environment: str = "production"
+
     # Limits (cost control)
     max_patch_chars: int = 12000        # per-file diff chars sent to the model
     max_files: int = 40
