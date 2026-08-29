@@ -45,10 +45,20 @@ class ResolvedOutput(BaseModel):
     items: list[ResolvedStatus] = Field(default_factory=list)
 
 
+_CLIENT: genai.Client | None = None
+
+
 def _client() -> genai.Client:
-    return genai.Client(
-        vertexai=True, project=settings.gcp_project, location=settings.vertex_location
-    )
+    # One client for the process. Creating a fresh genai.Client per call closes
+    # the shared httpx transport on GC -> "Cannot send a request, client closed".
+    global _CLIENT
+    if _CLIENT is None:
+        _CLIENT = genai.Client(
+            vertexai=True,
+            project=settings.gcp_project,
+            location=settings.vertex_location,
+        )
+    return _CLIENT
 
 
 def _patch_blob(files: list[dict]) -> str:
