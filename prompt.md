@@ -82,7 +82,7 @@ Aplica la sección que corresponda al lenguaje y archivos del PR.
   estilo que arreglaría un linter o formateador.
 - Prefiere pocos hallazgos de alta confianza antes que una lista larga. No
   inventes hallazgos para llenar la matriz de severidad.
-- Escribe `title` y `detail` en español.
+- Escribe `title`, `detail` y `overall` siempre en español.
 - Sé concreto: nombra el riesgo exacto y, cuando ayude, da un snippet corregido
   en `suggestion`.
 
