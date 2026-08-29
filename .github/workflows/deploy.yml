@@ -1,0 +1,66 @@
+name: Deploy to Cloud Run genai-code-reviewer-flexe
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  SERVICE: genai-code-reviewer-flexe
+  REGION: us-east1
+  REPOSITORY: lasecre-repo
+  RUNTIME_SA: genai-reviewer-runtime
+  VERTEX_LOCATION: us-central1
+  MODEL: gemini-2.5-flash
+
+jobs:
+  deploy:
+    name: Build, Push and Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+      - name: Build and push image
+        run: |
+          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE }}:${{ github.sha }}"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.IMAGE }}
+          flags: >-
+            --allow-unauthenticated
+            --min-instances=0
+            --max-instances=5
+            --memory=512Mi
+            --service-account=${{ env.RUNTIME_SA }}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
+            --set-env-vars=GITHUB_APP_ID=${{ secrets.GH_APP_ID }},GCP_PROJECT=${{ env.PROJECT_ID }},VERTEX_LOCATION=${{ env.VERTEX_LOCATION }},MODEL=${{ env.MODEL }}
+            --set-secrets=GITHUB_APP_PRIVATE_KEY=genai-reviewer-gh-private-key:latest,GITHUB_WEBHOOK_SECRET=genai-reviewer-webhook-secret:latest
+
+      - name: Show deployed URL
+        run: |
+          URL=$(gcloud run services describe ${{ env.SERVICE }} --region=${{ env.REGION }} --format="value(status.url)")
+          echo "Service URL: $URL"
+          echo "Webhook URL: $URL/webhook"
+          echo "### genai-code-reviewer-flexe deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Webhook URL: \`$URL/webhook\`" >> "$GITHUB_STEP_SUMMARY"
