@@ -7,11 +7,16 @@ from fnmatch import fnmatch
 import sentry_sdk
 from fastapi import FastAPI, Header, Request, Response
 
-from . import gh, review
 from .settings import settings
 
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("genai-code-reviewer-flexe")
+log = logging.getLogger("ai-pr-reviewer")
+
+# Validate before importing `review`, which builds the model client at import.
+for _w in settings.check():
+    log.warning(_w)
+
+from . import gh, review  # noqa: E402  (after settings.check on purpose)
 
 if settings.sentry_dsn:
     sentry_sdk.init(
@@ -21,7 +26,7 @@ if settings.sentry_dsn:
         send_default_pii=False,
     )
 
-app = FastAPI(title="genai-code-reviewer-flexe")
+app = FastAPI(title="ai-pr-reviewer")
 
 REVIEW_ACTIONS = {"opened", "synchronize", "reopened", "ready_for_review"}
 
@@ -31,7 +36,7 @@ _SEV_ORDER = ["critical", "high", "medium", "low"]
 
 @app.get("/")
 def health() -> dict:
-    return {"ok": True, "service": "genai-code-reviewer-flexe"}
+    return {"ok": True, "service": "ai-pr-reviewer"}
 
 
 def _spawn(installation_id: int, repo_full: str, pr_number: int) -> None:
@@ -152,7 +157,7 @@ def _summary_md(result: review.ReviewOutput, resolved, spilled: list[str]) -> st
     for f in result.findings:
         by_sev[f.severity.value] = by_sev.get(f.severity.value, 0) + 1
 
-    out = ["## 🤖 genai-code-reviewer-flexe — Gemini 2.5 Flash", ""]
+    out = [f"## 🤖 Revisión automática — {settings.model}", ""]
     if by_sev:
         out.append(
             " · ".join(

@@ -13,11 +13,16 @@ class Settings(BaseSettings):
     github_app_private_key: str          # PEM contents; \n-escaped is fine
     github_webhook_secret: str
 
-    # Vertex AI
-    gcp_project: str
+    # LLM backend. Two ways to reach Gemini, pick one:
+    #  - Gemini API key (simplest, deploy anywhere): set genai_api_key.
+    #  - Vertex AI (no key, uses ADC / the runtime service account): leave
+    #    genai_api_key empty and set gcp_project.
+    genai_api_key: str = ""
+    gcp_project: str = ""
     vertex_location: str = "us-central1"
     model: str = "gemini-2.5-flash"
     thinking_budget: int = 2048         # 0 disables thinking (cheapest)
+    request_timeout: int = 120          # seconds per model call
 
     # One org-wide review prompt. Edit prompt.md in this repo and redeploy.
     prompt_file: str = "prompt.md"
@@ -62,6 +67,27 @@ class Settings(BaseSettings):
         from .default_prompt import DEFAULT_PROMPT
 
         return DEFAULT_PROMPT
+
+    def check(self) -> list[str]:
+        """Fail fast on misconfig; return non-fatal warnings for the caller to log."""
+        if len(self.github_webhook_secret) < 16:
+            raise RuntimeError(
+                "GITHUB_WEBHOOK_SECRET is missing or too short (need >= 16 chars). "
+                "Without a real secret the webhook signature check is worthless."
+            )
+        if not self.genai_api_key and not self.gcp_project:
+            raise RuntimeError(
+                "No LLM backend configured: set GENAI_API_KEY, or set GCP_PROJECT "
+                "to use Vertex AI."
+            )
+        warnings = []
+        if not self.allowed_org_set:
+            warnings.append(
+                "ALLOWED_ORGS is empty: every org that installs this App is served "
+                "and its PRs cost you model calls. Set ALLOWED_ORGS unless this "
+                "instance is meant to be open to all."
+            )
+        return warnings
 
 
 settings = Settings()  # type: ignore[call-arg]

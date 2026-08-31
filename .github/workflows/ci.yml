@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_APP_ID: "1"
+      GITHUB_APP_PRIVATE_KEY: dummy
+      GITHUB_WEBHOOK_SECRET: xxxxxxxxxxxxxxxxxxxx
+      GENAI_API_KEY: dummy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python -m app.gh              # diff-hunk parser + signature guard
+      - run: python -m tests.test_config   # settings / allowlist / exclude / guards
+      - run: python -c "import app.main"   # import-time wiring / syntax
