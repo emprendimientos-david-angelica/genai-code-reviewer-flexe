@@ -37,9 +37,18 @@ class Settings(BaseSettings):
 
     review_command: str = "/genai-review"  # comment on a PR to re-run
 
+    # Cost guard: comma-separated org logins allowed to use this App.
+    # Empty = allow every installation (back-compat). Any other install is ignored
+    # before a single model call, so a stray public install costs nothing.
+    allowed_orgs: str = ""
+
     @property
     def private_key(self) -> str:
         return self.github_app_private_key.replace("\\n", "\n")
+
+    @property
+    def allowed_org_set(self) -> set[str]:
+        return {o.strip().lower() for o in self.allowed_orgs.split(",") if o.strip()}
 
     @property
     def exclude_list(self) -> list[str]:
