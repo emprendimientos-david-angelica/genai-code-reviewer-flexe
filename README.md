@@ -106,6 +106,20 @@ Then the repo's **Actions secrets** (only 3, none is the App private key):
 Add or remove repos any time from the App's **Install App** page — that is the
 on/off switch, per repo.
 
+### Using the App on more than one org
+
+The App is *"Only on this account"*, so a second org can't install it as-is.
+Make it public (App → **General → Make public**; stays unlisted) and set the
+cost guard so only your orgs are served:
+
+- Repo → **Settings → Secrets and variables → Actions → Variables** →
+  `ALLOWED_ORGS` = comma-separated org logins, e.g. `flexe-org,my-other-org`.
+- Redeploy. Any install outside that list gets a `204` before a single Gemini
+  call — a stray public install costs nothing.
+- Empty / unset `ALLOWED_ORGS` = serve every installation (original behaviour).
+
+Then install on each org from `https://github.com/apps/<APP_SLUG>/installations/new`.
+
 ---
 
 ## Changing the review prompt

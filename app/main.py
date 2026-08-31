@@ -55,6 +55,13 @@ async def webhook(
     payload = await request.json()
     action = payload.get("action")
 
+    allowed = settings.allowed_org_set
+    if allowed:
+        owner = (payload.get("repository", {}).get("owner", {}).get("login") or "").lower()
+        if owner not in allowed:
+            log.info("ignoring event from unlisted org %r", owner)
+            return Response(status_code=204)
+
     if x_github_event == "pull_request" and action in REVIEW_ACTIONS:
         pr = payload["pull_request"]
         if not pr.get("draft"):
