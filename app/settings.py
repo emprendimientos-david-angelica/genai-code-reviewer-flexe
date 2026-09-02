@@ -70,10 +70,10 @@ class Settings(BaseSettings):
 
     def check(self) -> list[str]:
         """Fail fast on misconfig; return non-fatal warnings for the caller to log."""
-        if len(self.github_webhook_secret) < 16:
+        if not self.github_webhook_secret:
             raise RuntimeError(
-                "GITHUB_WEBHOOK_SECRET is missing or too short (need >= 16 chars). "
-                "Without a real secret the webhook signature check is worthless."
+                "GITHUB_WEBHOOK_SECRET is not set. The webhook signature check "
+                "cannot work without it."
             )
         if not self.genai_api_key and not self.gcp_project:
             raise RuntimeError(
@@ -81,6 +81,11 @@ class Settings(BaseSettings):
                 "to use Vertex AI."
             )
         warnings = []
+        if len(self.github_webhook_secret) < 16:
+            warnings.append(
+                "GITHUB_WEBHOOK_SECRET is shorter than 16 chars; use a longer "
+                "random string for a stronger HMAC."
+            )
         if not self.allowed_org_set:
             warnings.append(
                 "ALLOWED_ORGS is empty: every org that installs this App is served "

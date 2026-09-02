@@ -132,7 +132,7 @@ All via environment variables (see [`.env.example`](.env.example) for the full l
 |---|---|---|
 | `GITHUB_APP_ID` | — | GitHub App ID (required) |
 | `GITHUB_APP_PRIVATE_KEY` | — | App private key, PEM (required) |
-| `GITHUB_WEBHOOK_SECRET` | — | Webhook HMAC secret, ≥ 16 chars (required — service won't start without it) |
+| `GITHUB_WEBHOOK_SECRET` | — | Webhook HMAC secret (required — service won't start if unset; warns if shorter than 16 chars) |
 | `GENAI_API_KEY` | `""` | Gemini API key. If set, used instead of Vertex |
 | `GCP_PROJECT` | `""` | GCP project for Vertex AI (required if no API key) |
 | `VERTEX_LOCATION` | `us-central1` | Vertex region |
