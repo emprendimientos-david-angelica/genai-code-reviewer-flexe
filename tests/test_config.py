@@ -33,13 +33,18 @@ def test_exclude_list():
     assert s(exclude_globs="a, b ,, c").exclude_list == ["a", "b", "c"]
 
 
-def test_check_rejects_weak_secret():
+def test_check_rejects_empty_secret():
     try:
-        s(github_webhook_secret="short").check()
+        s(github_webhook_secret="").check()
     except RuntimeError:
         pass
     else:
-        raise AssertionError("weak webhook secret should raise")
+        raise AssertionError("empty webhook secret should raise")
+
+
+def test_check_warns_on_short_secret():
+    warnings = s(github_webhook_secret="short").check()
+    assert any("shorter than 16" in w for w in warnings)
 
 
 def test_check_requires_llm_backend():
