@@ -1,154 +1,219 @@
-# genai-code-reviewer-flexe
+# ai-pr-reviewer
 
-GitHub App that reviews pull requests with **Gemini 2.5 Flash** on Vertex AI.
+A self-hosted GitHub App that reviews pull requests with Google's **Gemini**
+models and posts the findings back on the PR.
 
-- Inline comments on the changed lines, one per finding, with severity and
-  optional `suggestion` blocks.
-- One summary review comment at the end of the PR (counts, overall notes,
-  findings that landed outside the diff).
-- Re-validation: on every push to the PR (`synchronize`) and on the
-  `/genai-review` comment, it re-reviews the current diff **and** re-checks the
-  previous findings, marking each ✅ resolved / ❌ open / ❔ unknown.
-- **One org-wide prompt** — [`prompt.md`](prompt.md) in this repo. Change it,
-  push to `main`, it redeploys. No per-repo config.
+- **Inline comments** on the changed lines, one per finding, each with a severity
+  (`critical` / `high` / `medium` / `low`) and an optional `suggestion` block.
+- **One summary review** at the end of the PR: counts by severity, an overall
+  note, and any findings that landed outside the diff.
+- **Re-review on every push** to the PR (`synchronize`) and on a `/genai-review`
+  comment. It re-runs the review **and** re-checks the previous findings,
+  marking each ✅ resolved / ❌ open / ❔ unknown.
+- **One prompt for the whole install** — [`prompt.md`](prompt.md) in this repo.
+  Edit it, redeploy, done. No per-repo config.
 - **No database.** Prior findings are read back from the App's own review
   comments on the PR.
+- **Comment-only.** The bot never approves, requests changes, or merges. A
+  malicious diff can at worst produce a noisy comment.
 
-## Architecture
+> The reference deployment runs on **Cloud Run + Vertex AI**. It also runs with a
+> plain **Gemini API key** and no GCP at all — see [LLM backend](#llm-backend).
+
+---
+
+## How it works
 
 ```
-GitHub PR event ──HTTPS──▶ Cloud Run: genai-code-reviewer-flexe (FastAPI /webhook)
-                              │  verify HMAC signature
-                              │  installation token (GitHub App)
+GitHub PR event ──HTTPS──▶  /webhook  (FastAPI)
+                              │  verify HMAC signature (X-Hub-Signature-256)
+                              │  drop events from orgs not in ALLOWED_ORGS
+                              │  mint an installation token (GitHub App)
                               │  GET PR files + patches
-                              ├─▶ Gemini 2.5 Flash: diff → findings JSON
-                              ├─▶ Gemini 2.5 Flash: prior findings → resolved?
+                              ├─▶ Gemini: diff → findings JSON
+                              ├─▶ Gemini: prior findings → resolved?
                               └─▶ POST PR review: inline comments + summary
 ```
 
-Deploy mirrors `la-secre-bk`: push to `main` → GitHub Actions builds the image,
-pushes to Artifact Registry `lasecre-repo` (us-east1), deploys Cloud Run.
+The review runs in a background thread; the webhook returns `202` immediately.
 
 ---
 
-## Part A — create the GitHub App  (you do this, ~5 min)
+## Quick start
 
-GitHub can't create Apps via API, so this part is manual.
+You need: a GitHub org (or user) you can create an App on, and either a Gemini
+API key or a GCP project with Vertex AI enabled.
 
-1. Go to **your org → Settings → Developer settings → GitHub Apps → New GitHub App**
-   (URL: `https://github.com/organizations/<ORG>/settings/apps/new`).
-2. Fill in:
-   - **GitHub App name**: `genai-code-reviewer-flexe`
-   - **Homepage URL**: your org URL (anything valid)
-   - **Webhook → Active**: ✅ checked
-   - **Webhook URL**: `https://PLACEHOLDER/webhook` (fixed after first deploy)
-   - **Webhook secret**: generate a random string, **keep it** → this is
-     `WEBHOOK_SECRET` below.
-3. **Repository permissions**:
-   - **Pull requests**: Read and write
-   - **Metadata**: Read-only (auto)
-   - everything else: No access
-4. **Subscribe to events**: ✅ **Pull request**, ✅ **Issue comment**
-5. **Where can this app be installed?**: *Only on this account*.
-6. Click **Create GitHub App**.
-7. On the App page, note the **App ID**.
-8. Scroll to **Private keys → Generate a private key** → downloads a `.pem`. Keep it.
-9. **Do not install it yet** — do that in Part D, on the important repos only.
+### 1. Create the GitHub App
 
-You now have: **App ID**, **`.pem` file**, **webhook secret**. Send me the App
-ID; put the `.pem` and secret where Part C says (they go to GCP Secret Manager,
-never to GitHub).
+GitHub can't create Apps via API, so do this in the UI:
+**Org → Settings → Developer settings → GitHub Apps → New GitHub App**.
 
----
+| Field | Value |
+|---|---|
+| Webhook → Active | ✅ |
+| Webhook URL | `https://PLACEHOLDER/webhook` (fix after first deploy) |
+| Webhook secret | a long random string — this is `GITHUB_WEBHOOK_SECRET` |
+| Repository permissions → **Pull requests** | Read and write |
+| Repository permissions → **Metadata** | Read-only (automatic) |
+| Subscribe to events | ✅ **Pull request**, ✅ **Issue comment** |
+| Where can this be installed? | *Only on this account* (see [multi-org](#using-it-on-more-than-one-org)) |
 
-## Part B — push this code to a new repo  (you do this)
+Then on the App page: note the **App ID**, and **Generate a private key**
+(downloads a `.pem`). Don't install it yet.
 
-```bash
-cd ai-pr-reviewer
-git init && git add . && git commit -m "genai-code-reviewer-flexe: initial"
-gh repo create <ORG>/genai-code-reviewer-flexe --private --source=. --push
+### 2. Configure
+
+Copy [`.env.example`](.env.example) to `.env` and fill it in. Minimum:
+
+```
+GITHUB_APP_ID=...
+GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END ...\n"
+GITHUB_WEBHOOK_SECRET=...            # >= 16 chars, matches the App
+GENAI_API_KEY=...                   # or GCP_PROJECT=... for Vertex
+ALLOWED_ORGS=my-org                 # strongly recommended
 ```
 
----
+### 3. Run it
 
-## Part C — GCP + GitHub secrets  (I run this)
-
-I create, in project `proyectos-david-y-angelica` (region `us-east1`):
-
-| Resource | Name |
-|---|---|
-| Deploy SA (GitHub Actions identity) | `genai-reviewer-deploy@…` — roles: `run.admin`, `artifactregistry.writer`, `iam.serviceAccountUser` |
-| Runtime SA (Cloud Run identity) | `genai-reviewer-runtime@…` — roles: `aiplatform.user`, `secretmanager.secretAccessor` |
-| Secret Manager | `genai-reviewer-gh-private-key` ← your `.pem` |
-| Secret Manager | `genai-reviewer-webhook-secret` ← your webhook secret |
-
-Then the repo's **Actions secrets** (only 3, none is the App private key):
-
-| Secret | Value |
-|---|---|
-| `GCP_PROJECT_ID` | `proyectos-david-y-angelica` |
-| `GCP_SA_KEY` | JSON key of `genai-reviewer-deploy` |
-| `GH_APP_ID` | your App ID |
-
----
-
-## Part D — first deploy + wire the webhook
-
-1. Push to `main` (or run the **Deploy** workflow manually). The workflow's
-   summary prints the **Webhook URL**
-   (`https://genai-code-reviewer-flexe-…run.app/webhook`).
-2. GitHub App → **General → Webhook URL** → replace the placeholder with that
-   URL → Save.
-3. GitHub App → **Install App** → your org → **Only select repositories** → pick
-   the important repos → Install.
-4. Open a PR on one of them. The review posts within a minute.
-
-Add or remove repos any time from the App's **Install App** page — that is the
-on/off switch, per repo.
-
-### Using the App on more than one org
-
-The App is *"Only on this account"*, so a second org can't install it as-is.
-Make it public (App → **General → Make public**; stays unlisted) and set the
-cost guard so only your orgs are served:
-
-- Repo → **Settings → Secrets and variables → Actions → Variables** →
-  `ALLOWED_ORGS` = comma-separated org logins, e.g. `flexe-org,my-other-org`.
-- Redeploy. Any install outside that list gets a `204` before a single Gemini
-  call — a stray public install costs nothing.
-- Empty / unset `ALLOWED_ORGS` = serve every installation (original behaviour).
-
-Then install on each org from `https://github.com/apps/<APP_SLUG>/installations/new`.
-
----
-
-## Changing the review prompt
-
-Edit [`prompt.md`](prompt.md), commit, push to `main`. Redeploy is automatic.
-Same for `EXCLUDE_GLOBS` / `MAX_FINDINGS` — set them as env vars in
-`.github/workflows/deploy.yml` (`--set-env-vars`).
-
-## Local dev
+**Locally:**
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env          # fill values; gcloud auth application-default login for Vertex
 uvicorn app.main:app --reload --port 8080
-python app/gh.py              # self-check: diff-hunk parser + signature guard
+# expose it: cloudflared tunnel --url http://localhost:8080
 ```
 
-Use a tunnel (`cloudflared tunnel --url http://localhost:8080`) as the webhook
-URL while iterating.
+**Docker:**
+
+```bash
+docker build -t ai-pr-reviewer .
+docker run -p 8080:8080 --env-file .env ai-pr-reviewer
+```
+
+**Cloud Run:** the included [deploy workflow](.github/workflows/deploy.yml)
+builds the image, pushes it to Artifact Registry and deploys. It reads
+`GCP_PROJECT_ID`, `GCP_SA_KEY`, `GH_APP_ID` from Actions **secrets** and lets you
+override region / service name / secret names via Actions **variables** (see the
+comment at the top of the file). Secrets `GITHUB_APP_PRIVATE_KEY` and
+`GITHUB_WEBHOOK_SECRET` are pulled from GCP Secret Manager at deploy time.
+
+### 4. Wire the webhook and install
+
+1. Put the deployed URL (`https://.../webhook`) into the App's **Webhook URL**.
+2. App → **Install App** → pick the repos you want reviewed.
+3. Open a PR. The review lands within a minute.
+
+The **Install App** page is the per-repo on/off switch.
+
+---
+
+## LLM backend
+
+Pick one, in `.env` / the environment:
+
+| Mode | Set | Notes |
+|---|---|---|
+| **Gemini API key** | `GENAI_API_KEY` | Simplest. Runs anywhere. Get a key from Google AI Studio. |
+| **Vertex AI** | `GCP_PROJECT` (leave `GENAI_API_KEY` empty) | No key in env — uses Application Default Credentials / the Cloud Run runtime service account. `VERTEX_LOCATION` defaults to `us-central1`. |
+
+Both go through the same `google-genai` SDK. Other providers (OpenAI, Anthropic)
+are not wired up — [`app/review.py`](app/review.py) is the only file that talks
+to a model; a PR is welcome.
+
+---
+
+## Configuration
+
+All via environment variables (see [`.env.example`](.env.example) for the full list).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GITHUB_APP_ID` | — | GitHub App ID (required) |
+| `GITHUB_APP_PRIVATE_KEY` | — | App private key, PEM (required) |
+| `GITHUB_WEBHOOK_SECRET` | — | Webhook HMAC secret, ≥ 16 chars (required — service won't start without it) |
+| `GENAI_API_KEY` | `""` | Gemini API key. If set, used instead of Vertex |
+| `GCP_PROJECT` | `""` | GCP project for Vertex AI (required if no API key) |
+| `VERTEX_LOCATION` | `us-central1` | Vertex region |
+| `MODEL` | `gemini-2.5-flash` | Model id |
+| `THINKING_BUDGET` | `2048` | Thinking tokens; `0` = off (cheapest) |
+| `REQUEST_TIMEOUT` | `120` | Seconds per model call |
+| `ALLOWED_ORGS` | `""` | Comma-separated org logins allowed to use this App. **Empty = every install is served** (and costs you model calls). Case-insensitive |
+| `PROMPT_FILE` | `prompt.md` | Review prompt file, relative to repo root |
+| `EXCLUDE_GLOBS` | lockfiles, `dist/**`, `node_modules/**`, … | Paths skipped in the diff |
+| `MAX_PATCH_CHARS` | `12000` | Per-file diff chars sent to the model |
+| `MAX_FILES` | `40` | Max files reviewed per PR |
+| `MAX_FINDINGS` | `30` | Max findings posted per review |
+| `REVIEW_COMMAND` | `/genai-review` | PR comment that re-triggers a review |
+| `SENTRY_DSN` | `""` | Optional. Error reporting; no-op when empty |
+
+### Changing the review prompt
+
+Edit [`prompt.md`](prompt.md), commit, redeploy. If the file is missing, the
+built-in [`app/default_prompt.py`](app/default_prompt.py) is used.
+
+---
+
+## Using it on more than one org
+
+An App marked *"Only on this account"* can't be installed elsewhere. To serve a
+second org, make the App **public** (App → General → *Make public*; it stays
+unlisted) and set `ALLOWED_ORGS` so only your orgs are served — any other
+install gets a `204` before a single model call, so a stray public install costs
+nothing. Then install from
+`https://github.com/apps/<APP_SLUG>/installations/new`.
+
+---
+
+## Security
+
+- **Webhook auth is the HMAC signature.** `X-Hub-Signature-256` is verified with
+  a constant-time compare; missing or malformed signatures are rejected. The
+  service refuses to start if `GITHUB_WEBHOOK_SECRET` is shorter than 16 chars.
+- **The Cloud Run service is `--allow-unauthenticated`** because GitHub can't
+  send bearer tokens. The signature is what gates it — keep the secret secret.
+- **Cost:** a public App with an empty `ALLOWED_ORGS` will run model calls for
+  anyone who installs it. Set `ALLOWED_ORGS`.
+- **Prompt injection:** PR diff text is sent to the model as data. Because the
+  bot only *comments* (never approves or merges), the worst case is a misleading
+  comment. Still, treat its output as advisory.
+- **Logs** include model output on parse failure, which can contain snippets of
+  the reviewed code. Fine for a private self-hosted instance; be aware if you
+  ship logs somewhere shared.
+- Report vulnerabilities per [`SECURITY.md`](SECURITY.md).
+
+---
+
+## Limitations
+
+- Reviews the **diff only** — no whole-repo context, no cross-file reasoning
+  beyond what's in the patch.
+- `MAX_FILES` / `MAX_PATCH_CHARS` cap large PRs; oversized diffs are truncated.
+- Background review runs in-process after a `202`. Fine for a handful of repos;
+  for high volume, move the job to a queue (Cloud Tasks / Pub-Sub) and have
+  `/webhook` only enqueue.
+- Single prompt per deployment. No per-repo overrides.
+- GitHub Enterprise Server is not supported out of the box (would need a
+  configurable API base URL).
+
+---
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). Run the self-checks before a PR:
+
+```bash
+python -m app.gh          # diff-hunk parser + signature guard
+python -m tests.test_config
+```
 
 ## Cost
 
 Gemini 2.5 Flash, ~5k–30k tokens per PR → typically under US$0.01 per review.
-`THINKING_BUDGET=0` makes it cheaper; the resolved-check call already runs with
-thinking off. Cloud Run `--min-instances=0` = pay only while a review runs.
+`THINKING_BUDGET=0` makes it cheaper (the resolved-check call already runs with
+thinking off). Cloud Run `--min-instances=0` = pay only while a review runs.
 
-## Scaling ceiling
+## License
 
-`BackgroundTasks` runs the review in-process after a `202`. Fine for a handful
-of repos. Higher volume → push the job to Cloud Tasks / Pub-Sub and have
-`/webhook` only enqueue.
+[MIT](LICENSE).

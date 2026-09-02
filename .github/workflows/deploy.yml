@@ -1,4 +1,12 @@
-name: Deploy to Cloud Run genai-code-reviewer-flexe
+name: Deploy to Cloud Run
+
+# Override any of these per fork via repo Variables (Settings -> Secrets and
+# variables -> Actions -> Variables). Defaults keep the reference deployment
+# working with no Variables set.
+#   GCP_REGION, AR_REPOSITORY, SERVICE_NAME, RUNTIME_SA, VERTEX_LOCATION, MODEL,
+#   GH_PRIVATE_KEY_SECRET, WEBHOOK_SECRET_NAME
+# Secrets required: GCP_PROJECT_ID, GCP_SA_KEY, GH_APP_ID  (SENTRY_DSN optional)
+# Variable optional: ALLOWED_ORGS
 
 on:
   push:
@@ -7,12 +15,14 @@ on:
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  SERVICE: genai-code-reviewer-flexe
-  REGION: us-east1
-  REPOSITORY: lasecre-repo
-  RUNTIME_SA: genai-reviewer-runtime
-  VERTEX_LOCATION: us-central1
-  MODEL: gemini-2.5-flash
+  SERVICE: ${{ vars.SERVICE_NAME || 'genai-code-reviewer-flexe' }}
+  REGION: ${{ vars.GCP_REGION || 'us-east1' }}
+  REPOSITORY: ${{ vars.AR_REPOSITORY || 'lasecre-repo' }}
+  RUNTIME_SA: ${{ vars.RUNTIME_SA || 'genai-reviewer-runtime' }}
+  VERTEX_LOCATION: ${{ vars.VERTEX_LOCATION || 'us-central1' }}
+  MODEL: ${{ vars.MODEL || 'gemini-2.5-flash' }}
+  GH_PRIVATE_KEY_SECRET: ${{ vars.GH_PRIVATE_KEY_SECRET || 'genai-reviewer-gh-private-key' }}
+  WEBHOOK_SECRET_NAME: ${{ vars.WEBHOOK_SECRET_NAME || 'genai-reviewer-webhook-secret' }}
 
 jobs:
   deploy:
@@ -56,12 +66,12 @@ jobs:
             --no-cpu-throttling
             --service-account=${{ env.RUNTIME_SA }}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
             --set-env-vars=^|^GITHUB_APP_ID=${{ secrets.GH_APP_ID }}|GCP_PROJECT=${{ env.PROJECT_ID }}|VERTEX_LOCATION=${{ env.VERTEX_LOCATION }}|MODEL=${{ env.MODEL }}|ENVIRONMENT=production|SENTRY_DSN=${{ secrets.SENTRY_DSN }}|ALLOWED_ORGS=${{ vars.ALLOWED_ORGS }}
-            --set-secrets=GITHUB_APP_PRIVATE_KEY=genai-reviewer-gh-private-key:latest,GITHUB_WEBHOOK_SECRET=genai-reviewer-webhook-secret:latest
+            --set-secrets=GITHUB_APP_PRIVATE_KEY=${{ env.GH_PRIVATE_KEY_SECRET }}:latest,GITHUB_WEBHOOK_SECRET=${{ env.WEBHOOK_SECRET_NAME }}:latest
 
       - name: Show deployed URL
         run: |
           URL=$(gcloud run services describe ${{ env.SERVICE }} --region=${{ env.REGION }} --format="value(status.url)")
           echo "Service URL: $URL"
           echo "Webhook URL: $URL/webhook"
-          echo "### genai-code-reviewer-flexe deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "### ${{ env.SERVICE }} deployed" >> "$GITHUB_STEP_SUMMARY"
           echo "Webhook URL: \`$URL/webhook\`" >> "$GITHUB_STEP_SUMMARY"

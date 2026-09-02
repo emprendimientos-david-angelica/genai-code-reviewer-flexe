@@ -49,11 +49,16 @@ class ResolvedOutput(BaseModel):
 # the shared httpx transport on GC ("Cannot send a request, client closed"), and
 # building it inside anyio's threadpool leaves the transport orphaned. Worker
 # threads reuse this instance (httpx sync client is safe across threads).
-_CLIENT = genai.Client(
-    vertexai=True,
-    project=settings.gcp_project,
-    location=settings.vertex_location,
-)
+_http_opts = types.HttpOptions(timeout=settings.request_timeout * 1000)  # ms
+if settings.genai_api_key:
+    _CLIENT = genai.Client(api_key=settings.genai_api_key, http_options=_http_opts)
+else:
+    _CLIENT = genai.Client(
+        vertexai=True,
+        project=settings.gcp_project,
+        location=settings.vertex_location,
+        http_options=_http_opts,
+    )
 
 
 def _client() -> genai.Client:
