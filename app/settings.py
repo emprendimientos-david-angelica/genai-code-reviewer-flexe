@@ -42,6 +42,11 @@ class Settings(BaseSettings):
 
     review_command: str = "/genai-review"  # comment on a PR to re-run
 
+    # Cost controls for the re-review loop.
+    max_auto_reviews: int = 3        # automatic reviews per PR; review_command always bypasses
+    resolved_recheck_limit: int = 10  # re-check only the N most recent prior findings
+    debounce_seconds: int = 45      # on push, wait then bail if a newer push landed (0 = off)
+
     # Cost guard: comma-separated org logins allowed to use this App.
     # Empty = allow every installation (back-compat). Any other install is ignored
     # before a single model call, so a stray public install costs nothing.
