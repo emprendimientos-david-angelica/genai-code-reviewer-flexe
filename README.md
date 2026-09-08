@@ -7,9 +7,11 @@ models and posts the findings back on the PR.
   (`critical` / `high` / `medium` / `low`) and an optional `suggestion` block.
 - **One summary review** at the end of the PR: counts by severity, an overall
   note, and any findings that landed outside the diff.
-- **Re-review on every push** to the PR (`synchronize`) and on a `/genai-review`
+- **Re-review on push** to the PR (`synchronize`) and on a `/genai-review`
   comment. It re-runs the review **and** re-checks the previous findings,
-  marking each ✅ resolved / ❌ open / ❔ unknown.
+  marking each ✅ resolved / ❌ open / ❔ unknown. Automatic re-reviews stop
+  after `MAX_AUTO_REVIEWS` (default 3) per PR to bound cost; `/genai-review`
+  always runs. Bursts of pushes are debounced.
 - **One prompt for the whole install** — [`prompt.md`](prompt.md) in this repo.
   Edit it, redeploy, done. No per-repo config.
 - **No database.** Prior findings are read back from the App's own review
@@ -145,7 +147,10 @@ All via environment variables (see [`.env.example`](.env.example) for the full l
 | `MAX_PATCH_CHARS` | `12000` | Per-file diff chars sent to the model |
 | `MAX_FILES` | `40` | Max files reviewed per PR |
 | `MAX_FINDINGS` | `30` | Max findings posted per review |
-| `REVIEW_COMMAND` | `/genai-review` | PR comment that re-triggers a review |
+| `REVIEW_COMMAND` | `/genai-review` | PR comment that re-triggers a review (bypasses the cap) |
+| `MAX_AUTO_REVIEWS` | `3` | Automatic reviews per PR before auto-review stops. Comment `REVIEW_COMMAND` to force more |
+| `RESOLVED_RECHECK_LIMIT` | `10` | Re-check only the N most recent prior findings (caps the resolved-check prompt size) |
+| `DEBOUNCE_SECONDS` | `45` | On push, wait this long and skip the review if a newer push arrived. `0` disables |
 | `SENTRY_DSN` | `""` | Optional. Error reporting; no-op when empty |
 
 ### Changing the review prompt

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from fnmatch import fnmatch
 
 import sentry_sdk
@@ -39,11 +40,20 @@ def health() -> dict:
     return {"ok": True, "service": "ai-pr-reviewer"}
 
 
-def _spawn(installation_id: int, repo_full: str, pr_number: int) -> None:
+def _spawn(
+    installation_id: int,
+    repo_full: str,
+    pr_number: int,
+    *,
+    forced: bool = False,
+    head_sha: str | None = None,
+) -> None:
     # A dedicated OS thread, not anyio's threadpool: the google-genai sync client
     # misbehaves ("httpx client closed") when driven from that pool.
     threading.Thread(
-        target=_run, args=(installation_id, repo_full, pr_number), daemon=True
+        target=_run,
+        args=(installation_id, repo_full, pr_number, forced, head_sha),
+        daemon=True,
     ).start()
 
 
@@ -74,6 +84,7 @@ async def webhook(
                 payload["installation"]["id"],
                 payload["repository"]["full_name"],
                 pr["number"],
+                head_sha=pr.get("head", {}).get("sha"),
             )
     elif x_github_event == "issue_comment" and action == "created":
         issue = payload.get("issue", {})
@@ -83,6 +94,7 @@ async def webhook(
                 payload["installation"]["id"],
                 payload["repository"]["full_name"],
                 issue["number"],
+                forced=True,
             )
 
     return Response(status_code=202)
@@ -99,10 +111,43 @@ def _collect_files(pr) -> list[dict]:
     return files
 
 
-def _run(installation_id: int, repo_full: str, pr_number: int) -> None:
+def _run(
+    installation_id: int,
+    repo_full: str,
+    pr_number: int,
+    forced: bool = False,
+    head_sha: str | None = None,
+) -> None:
     try:
+        # Debounce a burst of pushes: wait, then bail if a newer push landed —
+        # the event for that push will do the review instead.
+        if not forced and head_sha and settings.debounce_seconds > 0:
+            time.sleep(settings.debounce_seconds)
+
         client = gh.client_for_installation(installation_id)
         pr = client.get_repo(repo_full).get_pull(pr_number)
+        me = gh.app_bot_login()
+
+        if not forced and head_sha and pr.head.sha != head_sha:
+            log.info(
+                "skipping %s#%s: head moved %s -> %s",
+                repo_full, pr_number, head_sha[:7], pr.head.sha[:7],
+            )
+            return
+
+        # Iteration cap. Automatic re-reviews stop after N; a `/genai-review`
+        # comment (forced) always runs. The last review's footer already tells
+        # the user how to force one.
+        if not forced:
+            n_prior = sum(
+                1 for r in pr.get_reviews() if r.user and r.user.login == me
+            )
+            if n_prior >= settings.max_auto_reviews:
+                log.info(
+                    "skipping %s#%s: auto-review cap %d reached",
+                    repo_full, pr_number, settings.max_auto_reviews,
+                )
+                return
 
         files = _collect_files(pr)
         if not files:
@@ -113,12 +158,11 @@ def _run(installation_id: int, repo_full: str, pr_number: int) -> None:
             settings.prompt, settings.model, settings.thinking_budget, files
         )
 
-        me = gh.app_bot_login()
         prior = [
             {"path": c.path, "title": c.body[:160]}
             for c in pr.get_review_comments()
             if c.user and c.user.login == me
-        ]
+        ][-settings.resolved_recheck_limit :]
         resolved = review.check_resolved(prior, settings.model, files)
 
         valid = {f["filename"]: gh.commentable_lines(f["patch"]) for f in files}
@@ -144,7 +188,12 @@ def _run(installation_id: int, repo_full: str, pr_number: int) -> None:
             "reviewed %s#%s: %d inline, %d spilled, %d rechecked",
             repo_full, pr_number, len(inline), len(spilled), len(resolved),
         )
-    except Exception:  # noqa: BLE001 - background task, log and move on
+    except Exception as exc:  # noqa: BLE001 - background task, log and move on
+        # 429 from the model is expected backpressure (shared quota), not a bug —
+        # log it, don't page.
+        if getattr(exc, "code", None) == 429 or "RESOURCE_EXHAUSTED" in str(exc):
+            log.warning("review rate-limited for %s#%s: %s", repo_full, pr_number, exc)
+            return
         log.exception("review failed for %s#%s", repo_full, pr_number)
         with sentry_sdk.new_scope() as scope:
             scope.set_tag("repo", repo_full)

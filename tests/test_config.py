@@ -62,6 +62,18 @@ def test_check_warns_on_empty_allowed_orgs():
     assert s(allowed_orgs="acme").check() == []
 
 
+def test_cost_control_defaults():
+    d = s()
+    assert d.max_auto_reviews == 3
+    assert d.resolved_recheck_limit == 10
+    assert d.debounce_seconds == 45
+
+
+def test_cost_controls_override_from_env():
+    assert s(max_auto_reviews="1", debounce_seconds="0").max_auto_reviews == 1
+    assert s(debounce_seconds="0").debounce_seconds == 0
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

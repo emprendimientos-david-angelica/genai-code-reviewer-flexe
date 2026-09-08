@@ -85,7 +85,7 @@ def run_review(prompt: str, model: str, thinking_budget: int, files: list[dict])
         contents=contents,
         config=types.GenerateContentConfig(
             system_instruction=prompt,
-            temperature=0.1,
+            temperature=0.0,
             response_mime_type="application/json",
             response_schema=ReviewOutput,
             thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
