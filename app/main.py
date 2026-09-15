@@ -134,6 +134,7 @@ def _run(
                 repo_full, pr_number, head_sha[:7], pr.head.sha[:7],
             )
             return
+        fetched_sha = pr.head.sha
 
         # Iteration cap. Automatic re-reviews stop after N; a `/genai-review`
         # comment (forced) always runs. The last review's footer already tells
@@ -178,6 +179,18 @@ def _run(
                 )
             else:
                 spilled.append(f"- `{fnd.path}:{fnd.line}` — {block}")
+
+        # Gemini can take a while (two sequential calls). If new commits landed
+        # on the PR meanwhile, our line numbers no longer match GitHub's current
+        # diff and create_review would 422 on the *whole* batch — bail instead of
+        # losing every finding. The next push (or /genai-review) reviews fresh.
+        pr.update()
+        if pr.head.sha != fetched_sha:
+            log.info(
+                "skipping %s#%s: head moved %s -> %s mid-review, diff is stale",
+                repo_full, pr_number, fetched_sha[:7], pr.head.sha[:7],
+            )
+            return
 
         pr.create_review(
             body=_summary_md(result, resolved, spilled),
