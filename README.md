@@ -118,7 +118,7 @@ Pick one, in `.env` / the environment:
 | Mode | Set | Notes |
 |---|---|---|
 | **Gemini API key** | `GENAI_API_KEY` | Simplest. Runs anywhere. Get a key from Google AI Studio. |
-| **Vertex AI** | `GCP_PROJECT` (leave `GENAI_API_KEY` empty) | No key in env — uses Application Default Credentials / the Cloud Run runtime service account. `VERTEX_LOCATION` defaults to `us-central1`. |
+| **Vertex AI** | `GCP_PROJECT` (leave `GENAI_API_KEY` empty) | No key in env — uses Application Default Credentials / the Cloud Run runtime service account. `VERTEX_LOCATION` defaults to `global` (where `gemini-3.x` is served; regional endpoints like `us-central1` don't have it yet). |
 
 Both go through the same `google-genai` SDK. Other providers (OpenAI, Anthropic)
 are not wired up — [`app/review.py`](app/review.py) is the only file that talks
@@ -137,8 +137,8 @@ All via environment variables (see [`.env.example`](.env.example) for the full l
 | `GITHUB_WEBHOOK_SECRET` | — | Webhook HMAC secret (required — service won't start if unset; warns if shorter than 16 chars) |
 | `GENAI_API_KEY` | `""` | Gemini API key. If set, used instead of Vertex |
 | `GCP_PROJECT` | `""` | GCP project for Vertex AI (required if no API key) |
-| `VERTEX_LOCATION` | `us-central1` | Vertex region |
-| `MODEL` | `gemini-2.5-flash` | Model id |
+| `VERTEX_LOCATION` | `global` | Vertex region |
+| `MODEL` | `gemini-3.6-flash` | Model id |
 | `THINKING_BUDGET` | `2048` | Thinking tokens; `0` = off (cheapest) |
 | `REQUEST_TIMEOUT` | `120` | Seconds per model call |
 | `ALLOWED_ORGS` | `""` | Comma-separated org logins allowed to use this App. **Empty = every install is served** (and costs you model calls). Case-insensitive |
@@ -215,7 +215,7 @@ python -m tests.test_config
 
 ## Cost
 
-Gemini 2.5 Flash, ~5k–30k tokens per PR → typically under US$0.01 per review.
+Gemini 3.6 Flash, ~5k–30k tokens per PR → typically under US$0.01 per review.
 `THINKING_BUDGET=0` makes it cheaper (the resolved-check call already runs with
 thinking off). Cloud Run `--min-instances=0` = pay only while a review runs.
 
