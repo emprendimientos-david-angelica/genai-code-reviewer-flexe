@@ -19,8 +19,8 @@ env:
   REGION: ${{ vars.GCP_REGION || 'us-east1' }}
   REPOSITORY: ${{ vars.AR_REPOSITORY || 'lasecre-repo' }}
   RUNTIME_SA: ${{ vars.RUNTIME_SA || 'genai-reviewer-runtime' }}
-  VERTEX_LOCATION: ${{ vars.VERTEX_LOCATION || 'us-central1' }}
-  MODEL: ${{ vars.MODEL || 'gemini-2.5-flash' }}
+  VERTEX_LOCATION: ${{ vars.VERTEX_LOCATION || 'global' }}
+  MODEL: ${{ vars.MODEL || 'gemini-3.6-flash' }}
   GH_PRIVATE_KEY_SECRET: ${{ vars.GH_PRIVATE_KEY_SECRET || 'genai-reviewer-gh-private-key' }}
   WEBHOOK_SECRET_NAME: ${{ vars.WEBHOOK_SECRET_NAME || 'genai-reviewer-webhook-secret' }}
 

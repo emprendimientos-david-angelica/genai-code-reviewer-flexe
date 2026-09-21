@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     #    genai_api_key empty and set gcp_project.
     genai_api_key: str = ""
     gcp_project: str = ""
-    vertex_location: str = "us-central1"
-    model: str = "gemini-2.5-flash"
+    vertex_location: str = "global"
+    model: str = "gemini-3.6-flash"
     thinking_budget: int = 2048         # 0 disables thinking (cheapest)
     request_timeout: int = 120          # seconds per model call
 
